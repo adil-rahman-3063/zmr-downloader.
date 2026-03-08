@@ -1,0 +1,5 @@
+services:
+  - type: web
+    name: zmr-downloader
+    runtime: docker
+    plan: free
