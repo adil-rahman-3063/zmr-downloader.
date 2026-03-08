@@ -19,7 +19,9 @@ https://your-render-url/download?url=https://music.youtube.com/watch?v=VIDEO_ID
 app.get("/download", async (req, res) => {
   try {
 
-    const url = req.query.url;
+    // `req.query` is untyped and may be string | ParsedQs | string[] | ParsedQs[]
+    const urlParam = req.query.url;
+    const url = typeof urlParam === 'string' ? urlParam : undefined;
 
     if (!url) {
       return res.status(400).send("Missing url parameter");
