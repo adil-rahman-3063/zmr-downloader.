@@ -7,15 +7,19 @@ RUN apt-get update && \
     apt-get install -y python3 python3-pip ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
+# copy package and typescript config first so npm layers cache when sources change
+COPY package.json tsconfig.json ./
 
 RUN npm install
 
 COPY . .
 
-# separate pip install for yt-dlp (optional, since yt-dlp-exec uses its own binary)
+# build TypeScript to JavaScript
+RUN npm run build
+
+# optional python/ytdlp installation
 RUN pip3 install yt-dlp
 
 EXPOSE 3000
 
-CMD ["node", "index.js"]
+CMD ["node", "dist/index.js"]
