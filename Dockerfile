@@ -18,8 +18,8 @@ COPY . .
 # build TypeScript to JavaScript
 RUN npm run build
 
-# optional python/ytdlp installation
-RUN pip3 install yt-dlp
+# yt-dlp-exec bundles its own binary, so no need to install yt-dlp separately
+# (Debian 12 also blocks global pip installs anyway)
 
 EXPOSE 3000
 
