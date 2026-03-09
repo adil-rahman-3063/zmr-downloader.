@@ -1,9 +1,10 @@
 import express from "express";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import { promisify } from "util";
 const app = express();
 const PORT = process.env.PORT || 3000;
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 /*
 Health check
 */
@@ -53,27 +54,52 @@ app.get("/download", async (req, res) => {
             return res.status(500).send("yt-dlp not available");
         }
         try {
-            const { stdout } = await execAsync(`yt-dlp "${url}" --format bestaudio --dump-json --no-warnings --no-check-certificate --no-cache-dir`);
-            console.log("yt-dlp output:", stdout.substring(0, 200) + "...");
+            console.log("Executing yt-dlp with URL:", url);
+            // Use execFileAsync to avoid shell interpretation issues
+            const { stdout, stderr } = await execFileAsync('yt-dlp', [
+                url,
+                '--format', 'bestaudio',
+                '--dump-json',
+                '--no-warnings',
+                '--no-check-certificate',
+                '--no-cache-dir'
+            ]);
+            if (stderr) {
+                console.warn("yt-dlp stderr:", stderr);
+            }
+            console.log("yt-dlp stdout received, length:", stdout.length);
             // Parse JSON output
-            const jsonOutput = JSON.parse(stdout);
+            let jsonOutput;
+            try {
+                jsonOutput = JSON.parse(stdout);
+            }
+            catch (parseErr) {
+                console.error("Failed to parse JSON. Output was:", stdout.substring(0, 300));
+                return res.status(500).send("Failed to parse video data");
+            }
+            console.log("Video title:", jsonOutput.title);
+            console.log("Available formats:", jsonOutput.formats?.length || 0);
             // Extract the best audio format URL
             const formats = jsonOutput.formats || [];
             const audioFormat = formats.find((f) => f.format_id === '251') || // webm audio
                 formats.find((f) => f.format_id === '140') || // m4a audio
                 formats.find((f) => f.acodec !== 'none' && f.vcodec === 'none');
             if (!audioFormat || !audioFormat.url) {
-                console.error("No suitable audio format found");
+                console.error("No suitable audio format found. Available formats:", formats.map((f) => ({ id: f.format_id, codec: f.acodec })));
                 return res.status(500).send("No audio stream available");
             }
             const audioUrl = audioFormat.url;
-            console.log("Audio stream:", audioUrl.substring(0, 100) + "...");
+            console.log("Found audio URL, first 100 chars:", audioUrl.substring(0, 100));
             res.json({
                 stream: audioUrl
             });
         }
         catch (execErr) {
-            console.error("yt-dlp execution failed:", execErr);
+            console.error("yt-dlp execution error:", execErr);
+            if (execErr instanceof Error) {
+                console.error("Error message:", execErr.message);
+                console.error("Error stack:", execErr.stack);
+            }
             return res.status(500).send("Failed to extract audio");
         }
     }
