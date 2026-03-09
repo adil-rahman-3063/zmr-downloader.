@@ -18,16 +18,16 @@ COPY . .
 # build TypeScript to JavaScript
 RUN npm run build
 
-# Install yt-dlp - try apt first, fallback to curl
+# Install yt-dlp - download latest from GitHub
 RUN apt-get update && \
-    (apt-get install -y yt-dlp || \
-     (curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
-      chmod a+rx /usr/local/bin/yt-dlp)) && \
+    apt-get install -y curl && \
+    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp && \
     rm -rf /var/lib/apt/lists/*
 
 EXPOSE 3000
 
 ENV NODE_ENV=production
-ENV YT_DLP=/usr/bin/yt-dlp
+ENV YT_DLP=/usr/local/bin/yt-dlp
 
 CMD ["node", "dist/index.js"]

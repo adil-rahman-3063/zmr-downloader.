@@ -7,7 +7,8 @@ const PORT = process.env.PORT || 3000;
 // Custom wrapper for execFile since promisify doesn't work well with it
 function runYtdlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('yt-dlp', args, (error, stdout, stderr) => {
+    const ytDlpPath = process.env.NODE_ENV === 'production' ? 'yt-dlp' : 'C:\\Users\\adilr\\Documents\\projects\\zmr-download\\.venv\\Scripts\\yt-dlp.exe';
+    execFile(ytDlpPath, args, (error, stdout, stderr) => {
       if (error) {
         console.error("execFile error code:", error.code);
         console.error("execFile error message:", error.message);
