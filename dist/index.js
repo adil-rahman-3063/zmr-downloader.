@@ -1,10 +1,26 @@
 import express from "express";
-import { exec, execFile } from "child_process";
-import { promisify } from "util";
+import { execFile } from "child_process";
 const app = express();
 const PORT = process.env.PORT || 3000;
-const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
+// Custom wrapper for execFile since promisify doesn't work well with it
+function runYtdlp(args) {
+    return new Promise((resolve, reject) => {
+        execFile('yt-dlp', args, (error, stdout, stderr) => {
+            if (error) {
+                console.error("execFile error code:", error.code);
+                console.error("execFile error message:", error.message);
+                console.error("stderr:", stderr);
+                reject(error);
+            }
+            else {
+                if (stderr) {
+                    console.warn("yt-dlp stderr:", stderr);
+                }
+                resolve(stdout);
+            }
+        });
+    });
+}
 /*
 Health check
 */
@@ -16,10 +32,10 @@ Test yt-dlp availability
 */
 app.get("/test", async (req, res) => {
     try {
-        const { stdout } = await execAsync('yt-dlp --version');
+        const version = await runYtdlp(['--version']);
         res.json({
             status: "yt-dlp available",
-            version: stdout.trim()
+            version: version.trim()
         });
     }
     catch (err) {
@@ -46,7 +62,7 @@ app.get("/download", async (req, res) => {
         console.log("Downloading:", url);
         // First check if yt-dlp is available
         try {
-            await execAsync('yt-dlp --version');
+            await runYtdlp(['--version']);
             console.log("yt-dlp is available");
         }
         catch (versionErr) {
@@ -55,18 +71,15 @@ app.get("/download", async (req, res) => {
         }
         try {
             console.log("Executing yt-dlp with URL:", url);
-            // Use execFileAsync to avoid shell interpretation issues
-            const { stdout, stderr } = await execFileAsync('yt-dlp', [
+            const stdout = await runYtdlp([
                 url,
                 '--format', 'bestaudio',
                 '--dump-json',
                 '--no-warnings',
                 '--no-check-certificate',
-                '--no-cache-dir'
+                '--no-cache-dir',
+                '--socket-timeout', '30'
             ]);
-            if (stderr) {
-                console.warn("yt-dlp stderr:", stderr);
-            }
             console.log("yt-dlp stdout received, length:", stdout.length);
             // Parse JSON output
             let jsonOutput;
@@ -74,19 +87,27 @@ app.get("/download", async (req, res) => {
                 jsonOutput = JSON.parse(stdout);
             }
             catch (parseErr) {
-                console.error("Failed to parse JSON. Output was:", stdout.substring(0, 300));
+                console.error("Failed to parse JSON. Output was:", stdout.substring(0, 500));
                 return res.status(500).send("Failed to parse video data");
             }
             console.log("Video title:", jsonOutput.title);
             console.log("Available formats:", jsonOutput.formats?.length || 0);
             // Extract the best audio format URL
             const formats = jsonOutput.formats || [];
+            if (formats.length === 0) {
+                console.error("No formats available in response");
+                return res.status(500).send("No formats available for this video");
+            }
             const audioFormat = formats.find((f) => f.format_id === '251') || // webm audio
                 formats.find((f) => f.format_id === '140') || // m4a audio
                 formats.find((f) => f.acodec !== 'none' && f.vcodec === 'none');
-            if (!audioFormat || !audioFormat.url) {
-                console.error("No suitable audio format found. Available formats:", formats.map((f) => ({ id: f.format_id, codec: f.acodec })));
+            if (!audioFormat) {
+                console.error("No suitable audio format found. Available formats:", formats.map((f) => ({ id: f.format_id, codec: f.acodec, vcodec: f.vcodec })).slice(0, 10));
                 return res.status(500).send("No audio stream available");
+            }
+            if (!audioFormat.url) {
+                console.error("Audio format found but no URL:", audioFormat);
+                return res.status(500).send("Audio format has no URL");
             }
             const audioUrl = audioFormat.url;
             console.log("Found audio URL, first 100 chars:", audioUrl.substring(0, 100));
@@ -98,7 +119,15 @@ app.get("/download", async (req, res) => {
             console.error("yt-dlp execution error:", execErr);
             if (execErr instanceof Error) {
                 console.error("Error message:", execErr.message);
+                console.error("Error code:", execErr.code);
                 console.error("Error stack:", execErr.stack);
+            }
+            // Try to provide more specific error messages
+            if (execErr instanceof Error && execErr.message.includes("ENOENT")) {
+                return res.status(500).send("yt-dlp binary not found");
+            }
+            if (execErr instanceof Error && execErr.message.includes("Unable to extract")) {
+                return res.status(400).send("Could not extract video information - URL may be invalid or video unavailable");
             }
             return res.status(500).send("Failed to extract audio");
         }
