@@ -28,5 +28,6 @@ RUN apt-get update && \
 EXPOSE 3000
 
 ENV NODE_ENV=production
+ENV YT_DLP=/usr/bin/yt-dlp
 
 CMD ["node", "dist/index.js"]
