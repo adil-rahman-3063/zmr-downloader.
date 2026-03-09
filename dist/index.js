@@ -83,22 +83,49 @@ app.get("/download", async (req, res) => {
             const formatArg = isYouTubeMusic
                 ? 'best[ext=m4a]/best[ext=webm]/best[ext=mp4]/best'
                 : 'best[ext=m4a]/best[ext=webm]/bestaudio/best';
-            const stdout = await runYtdlp([
-                url,
-                '--format', formatArg,
-                '--dump-json',
-                '--no-warnings',
-                '--no-check-certificate',
-                '--no-cache-dir',
-                '--socket-timeout', '30',
-                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '--referer', 'https://www.youtube.com/',
-                '--extractor-args', isYouTubeMusic
-                    ? 'youtube:skip=hls/dash,lang=en'
-                    : 'youtube:skip=hls/dash',
-                '--http-chunk-size', '10485760',
-                '--no-color'
-            ]);
+            let stdout;
+            try {
+                // First attempt with full headers
+                stdout = await runYtdlp([
+                    url,
+                    '--format', formatArg,
+                    '--dump-json',
+                    '--no-warnings',
+                    '--no-check-certificate',
+                    '--no-cache-dir',
+                    '--socket-timeout', '30',
+                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '--referer', 'https://www.youtube.com/',
+                    '--add-header', 'Accept-Language:en-US,en;q=0.9',
+                    '--add-header', 'Accept-Encoding:gzip, deflate, br',
+                    '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    '--add-header', 'Cache-Control:no-cache',
+                    '--add-header', 'Pragma:no-cache',
+                    '--extractor-args', isYouTubeMusic
+                        ? 'youtube:skip=hls/dash,lang=en'
+                        : 'youtube:skip=hls/dash',
+                    '--http-chunk-size', '10485760',
+                    '--no-color'
+                ]);
+            }
+            catch (firstAttemptError) {
+                console.log("First attempt failed, trying fallback approach...");
+                // Fallback attempt with simpler headers
+                stdout = await runYtdlp([
+                    url,
+                    '--format', 'best',
+                    '--dump-json',
+                    '--no-warnings',
+                    '--no-check-certificate',
+                    '--no-cache-dir',
+                    '--socket-timeout', '30',
+                    '--user-agent', 'Mozilla/5.0 (compatible; yt-dlp/2024.01.01; +https://github.com/yt-dlp/yt-dlp)',
+                    '--sleep-interval', '1',
+                    '--max-sleep-interval', '3',
+                    '--extractor-args', 'youtube:player_client=android',
+                    '--no-color'
+                ]);
+            }
             console.log("✓ yt-dlp stdout received, length:", stdout.length);
             // Parse JSON output
             let jsonOutput;
