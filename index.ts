@@ -1,33 +1,59 @@
 import express from "express";
 import { execFile } from "child_process";
+import { writeFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Custom wrapper for execFile since promisify doesn't work well with it
-function runYtdlp(args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const ytDlpPath = process.env.NODE_ENV === 'production' ? 'yt-dlp' : 'C:\\Users\\adilr\\Documents\\projects\\zmr-download\\.venv\\Scripts\\yt-dlp.exe';
-    console.log(`Running yt-dlp from: ${ytDlpPath}`);
-    console.log(`yt-dlp command args: ${args.join(' ')}`);
+async function runYtdlp(args: string[], cookies?: string): Promise<string> {
+  let cookieFile: string | undefined;
+  
+  try {
+    // If cookies are provided, create a temporary cookie file
+    if (cookies) {
+      const cookieData = Buffer.from(cookies, 'base64').toString('utf-8');
+      cookieFile = join(tmpdir(), `yt-dlp-cookies-${Date.now()}.txt`);
+      await writeFile(cookieFile, cookieData, 'utf-8');
+      args.push('--cookies', cookieFile);
+      console.log(`Using cookie file: ${cookieFile}`);
+    }
     
-    execFile(ytDlpPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 60000 }, (error, stdout, stderr) => {
-      if (error) {
-        console.error("==== yt-dlp EXECUTION ERROR ====");
-        console.error("Error code:", error.code);
-        console.error("Error message:", error.message);
-        console.error("Error signal:", (error as any).signal);
-        console.error("stderr output:", stderr);
-        console.error("================================");
-        reject(error);
-      } else {
-        if (stderr) {
-          console.warn("yt-dlp warnings (stderr):", stderr);
+    return new Promise((resolve, reject) => {
+      const ytDlpPath = process.env.NODE_ENV === 'production' ? 'yt-dlp' : 'C:\\Users\\adilr\\Documents\\projects\\zmr-download\\.venv\\Scripts\\yt-dlp.exe';
+      console.log(`Running yt-dlp from: ${ytDlpPath}`);
+      console.log(`yt-dlp command args: ${args.join(' ')}`);
+      
+      execFile(ytDlpPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 60000 }, (error, stdout, stderr) => {
+        if (error) {
+          console.error("==== yt-dlp EXECUTION ERROR ====");
+          console.error("Error code:", error.code);
+          console.error("Error message:", error.message);
+          console.error("Error signal:", (error as any).signal);
+          console.error("stderr output:", stderr);
+          console.error("================================");
+          reject(error);
+        } else {
+          if (stderr) {
+            console.warn("yt-dlp warnings (stderr):", stderr);
+          }
+          resolve(stdout);
         }
-        resolve(stdout);
-      }
+      });
     });
-  });
+  } finally {
+    // Clean up cookie file
+    if (cookieFile) {
+      try {
+        await unlink(cookieFile);
+        console.log(`Cleaned up cookie file: ${cookieFile}`);
+      } catch (cleanupError) {
+        console.warn("Failed to clean up cookie file:", cleanupError);
+      }
+    }
+  }
 }
 
 /*
@@ -60,6 +86,7 @@ app.get("/test", async (req, res) => {
 Download endpoint
 Example:
 https://your-render-url/download?url=https://music.youtube.com/watch?v=VIDEO_ID
+Optional: &cookies=BASE64_ENCODED_COOKIE_DATA
 */
 app.get("/download", async (req, res) => {
   try {
@@ -67,12 +94,15 @@ app.get("/download", async (req, res) => {
     // `req.query` is untyped and may be string | ParsedQs | string[] | ParsedQs[]
     const urlParam = req.query.url;
     const url = typeof urlParam === 'string' ? urlParam : undefined;
+    const cookiesParam = req.query.cookies;
+    const cookies = typeof cookiesParam === 'string' ? cookiesParam : undefined;
 
     if (!url) {
       return res.status(400).send("Missing url parameter");
     }
 
     console.log("Downloading:", url);
+    console.log("Cookies provided:", !!cookies);
 
     // First check if yt-dlp is available
     try {
@@ -117,7 +147,7 @@ app.get("/download", async (req, res) => {
             : 'youtube:skip=hls/dash',
           '--http-chunk-size', '10485760',
           '--no-color'
-        ]);
+        ], cookies);
       } catch (firstAttemptError) {
         console.log("First attempt failed, trying fallback approach...");
         
@@ -135,7 +165,7 @@ app.get("/download", async (req, res) => {
           '--max-sleep-interval', '3',
           '--extractor-args', 'youtube:player_client=android',
           '--no-color'
-        ]);
+        ], cookies);
       }
       
       console.log("✓ yt-dlp stdout received, length:", stdout.length);
