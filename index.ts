@@ -104,6 +104,10 @@ app.get("/download", async (req, res) => {
     console.log("Downloading:", url);
     console.log("Cookies provided:", !!cookies);
 
+    // Normalize YouTube Music URLs to regular YouTube URLs
+    const normalizedUrl = url.replace('music.youtube.com', 'youtube.com');
+    console.log("Normalized URL:", normalizedUrl);
+
     // First check if yt-dlp is available
     try {
       await runYtdlp(['--version']);
@@ -114,7 +118,7 @@ app.get("/download", async (req, res) => {
     }
 
     try {
-      console.log("Executing yt-dlp with URL:", url);
+      console.log("Executing yt-dlp with URL:", normalizedUrl);
       
       // Different format handling for YouTube Music vs regular YouTube
       const isYouTubeMusic = url.includes('music.youtube.com');
@@ -128,7 +132,7 @@ app.get("/download", async (req, res) => {
       try {
         // First attempt with full headers
         stdout = await runYtdlp([
-          url,
+          normalizedUrl,
           '--format', formatArg,
           '--dump-json',
           '--no-warnings',
@@ -153,7 +157,7 @@ app.get("/download", async (req, res) => {
         
         // Fallback attempt with simpler headers
         stdout = await runYtdlp([
-          url,
+          normalizedUrl,
           '--format', 'best',
           '--dump-json',
           '--no-warnings',
@@ -163,7 +167,7 @@ app.get("/download", async (req, res) => {
           '--user-agent', 'Mozilla/5.0 (compatible; yt-dlp/2024.01.01; +https://github.com/yt-dlp/yt-dlp)',
           '--sleep-interval', '1',
           '--max-sleep-interval', '3',
-          '--extractor-args', 'youtube:player_client=android',
+          '--extractor-args', 'youtube:player_client=ios',
           '--no-color'
         ], cookies);
       }
