@@ -1,7 +1,9 @@
 import express from "express";
-import ytdlp from "yt-dlp-exec";
+import { exec } from "child_process";
+import { promisify } from "util";
 const app = express();
 const PORT = process.env.PORT || 3000;
+const execAsync = promisify(exec);
 /*
 Health check
 */
@@ -13,10 +15,10 @@ Test yt-dlp availability
 */
 app.get("/test", async (req, res) => {
     try {
-        const version = await ytdlp('--version');
+        const { stdout } = await execAsync('yt-dlp --version');
         res.json({
             status: "yt-dlp available",
-            version: String(version).trim()
+            version: stdout.trim()
         });
     }
     catch (err) {
@@ -43,45 +45,37 @@ app.get("/download", async (req, res) => {
         console.log("Downloading:", url);
         // First check if yt-dlp is available
         try {
-            await ytdlp('--version');
+            await execAsync('yt-dlp --version');
             console.log("yt-dlp is available");
         }
         catch (versionErr) {
             console.error("yt-dlp version check failed:", versionErr);
             return res.status(500).send("yt-dlp not available");
         }
-        const output = await ytdlp(url, {
-            format: "bestaudio",
-            dumpJson: true, // Get JSON output instead of direct URL
-            noWarnings: true,
-            noCheckCertificate: true, // Sometimes helps with network issues
-            noCacheDir: true
-        });
-        console.log("yt-dlp output type:", typeof output);
-        console.log("yt-dlp raw output:", output);
-        // Parse JSON output
-        let jsonOutput;
         try {
-            jsonOutput = typeof output === 'string' ? JSON.parse(output) : output;
+            const { stdout } = await execAsync(`yt-dlp "${url}" --format bestaudio --dump-json --no-warnings --no-check-certificate --no-cache-dir`);
+            console.log("yt-dlp output:", stdout.substring(0, 200) + "...");
+            // Parse JSON output
+            const jsonOutput = JSON.parse(stdout);
+            // Extract the best audio format URL
+            const formats = jsonOutput.formats || [];
+            const audioFormat = formats.find((f) => f.format_id === '251') || // webm audio
+                formats.find((f) => f.format_id === '140') || // m4a audio
+                formats.find((f) => f.acodec !== 'none' && f.vcodec === 'none');
+            if (!audioFormat || !audioFormat.url) {
+                console.error("No suitable audio format found");
+                return res.status(500).send("No audio stream available");
+            }
+            const audioUrl = audioFormat.url;
+            console.log("Audio stream:", audioUrl.substring(0, 100) + "...");
+            res.json({
+                stream: audioUrl
+            });
         }
-        catch (parseErr) {
-            console.error("Failed to parse yt-dlp output:", parseErr);
-            return res.status(500).send("Could not parse video data");
+        catch (execErr) {
+            console.error("yt-dlp execution failed:", execErr);
+            return res.status(500).send("Failed to extract audio");
         }
-        // Extract the best audio format URL
-        const formats = jsonOutput.formats || [];
-        const audioFormat = formats.find((f) => f.format_id === '251') || // webm audio
-            formats.find((f) => f.format_id === '140') || // m4a audio
-            formats.find((f) => f.acodec !== 'none' && f.vcodec === 'none');
-        if (!audioFormat || !audioFormat.url) {
-            console.error("No suitable audio format found");
-            return res.status(500).send("No audio stream available");
-        }
-        const audioUrl = audioFormat.url;
-        console.log("Audio stream:", audioUrl);
-        res.json({
-            stream: audioUrl
-        });
     }
     catch (err) {
         console.error("Download error details:", err);
