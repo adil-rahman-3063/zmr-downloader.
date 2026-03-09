@@ -8,15 +8,21 @@ const PORT = process.env.PORT || 3000;
 function runYtdlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const ytDlpPath = process.env.NODE_ENV === 'production' ? 'yt-dlp' : 'C:\\Users\\adilr\\Documents\\projects\\zmr-download\\.venv\\Scripts\\yt-dlp.exe';
-    execFile(ytDlpPath, args, (error, stdout, stderr) => {
+    console.log(`Running yt-dlp from: ${ytDlpPath}`);
+    console.log(`yt-dlp command args: ${args.join(' ')}`);
+    
+    execFile(ytDlpPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 60000 }, (error, stdout, stderr) => {
       if (error) {
-        console.error("execFile error code:", error.code);
-        console.error("execFile error message:", error.message);
-        console.error("stderr:", stderr);
+        console.error("==== yt-dlp EXECUTION ERROR ====");
+        console.error("Error code:", error.code);
+        console.error("Error message:", error.message);
+        console.error("Error signal:", (error as any).signal);
+        console.error("stderr output:", stderr);
+        console.error("================================");
         reject(error);
       } else {
         if (stderr) {
-          console.warn("yt-dlp stderr:", stderr);
+          console.warn("yt-dlp warnings (stderr):", stderr);
         }
         resolve(stdout);
       }
@@ -90,24 +96,26 @@ app.get("/download", async (req, res) => {
         '--socket-timeout', '30'
       ]);
       
-      console.log("yt-dlp stdout received, length:", stdout.length);
+      console.log("✓ yt-dlp stdout received, length:", stdout.length);
       
       // Parse JSON output
       let jsonOutput;
       try {
         jsonOutput = JSON.parse(stdout);
+        console.log("✓ JSON parsed successfully");
       } catch (parseErr) {
-        console.error("Failed to parse JSON. Output was:", stdout.substring(0, 500));
+        console.error("✗ JSON PARSE ERROR:");
+        console.error("Failed to parse JSON. First 1000 chars:", stdout.substring(0, 1000));
         return res.status(500).send("Failed to parse video data");
       }
       
-      console.log("Video title:", jsonOutput.title);
-      console.log("Available formats:", jsonOutput.formats?.length || 0);
+      console.log("✓ Video title:", jsonOutput.title);
+      console.log("✓ Available formats:", jsonOutput.formats?.length || 0);
 
       // Extract the best audio format URL
       const formats = jsonOutput.formats || [];
       if (formats.length === 0) {
-        console.error("No formats available in response");
+        console.error("✗ NO FORMATS ERROR: No formats available in response");
         return res.status(500).send("No formats available for this video");
       }
       
@@ -116,43 +124,37 @@ app.get("/download", async (req, res) => {
                          formats.find((f: any) => f.acodec !== 'none' && f.vcodec === 'none');
 
       if (!audioFormat) {
-        console.error("No suitable audio format found. Available formats:", formats.map((f: any) => ({ id: f.format_id, codec: f.acodec, vcodec: f.vcodec })).slice(0, 10));
+        console.error("✗ NO AUDIO FORMAT ERROR");
+        console.error("Sample formats:", formats.map((f: any) => ({ id: f.format_id, codec: f.acodec, vcodec: f.vcodec })).slice(0, 5));
         return res.status(500).send("No audio stream available");
       }
 
       if (!audioFormat.url) {
-        console.error("Audio format found but no URL:", audioFormat);
+        console.error("✗ NO URL ERROR: Audio format found but no URL:", audioFormat);
         return res.status(500).send("Audio format has no URL");
       }
 
       const audioUrl = audioFormat.url;
-      console.log("Found audio URL, first 100 chars:", audioUrl.substring(0, 100));
+      console.log("✓ Found audio URL");
 
       res.json({
         stream: audioUrl
       });
 
     } catch (execErr) {
-      console.error("yt-dlp execution error:", execErr);
+      console.error("==== yt-dlp EXECUTION ERROR IN DOWNLOAD ====");
+      console.error("Error type:", execErr instanceof Error ? execErr.constructor.name : typeof execErr);
+      console.error("Error details:", execErr);
       if (execErr instanceof Error) {
         console.error("Error message:", execErr.message);
-        console.error("Error code:", (execErr as any).code);
         console.error("Error stack:", execErr.stack);
       }
-      
-      // Try to provide more specific error messages
-      if (execErr instanceof Error && execErr.message.includes("ENOENT")) {
-        return res.status(500).send("yt-dlp binary not found");
-      }
-      if (execErr instanceof Error && execErr.message.includes("Unable to extract")) {
-        return res.status(400).send("Could not extract video information - URL may be invalid or video unavailable");
-      }
+      console.error("==========================================");
       
       return res.status(500).send("Failed to extract audio");
     }
 
   } catch (err) {
-
     console.error("Download error details:", err);
 
     // More specific error messages
