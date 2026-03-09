@@ -18,9 +18,12 @@ COPY . .
 # build TypeScript to JavaScript
 RUN npm run build
 
-# yt-dlp-exec bundles its own binary, so no need to install yt-dlp separately
-# (Debian 12 also blocks global pip installs anyway)
+# Install yt-dlp using the official installation method
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp
 
 EXPOSE 3000
+
+ENV NODE_ENV=production
 
 CMD ["node", "dist/index.js"]
