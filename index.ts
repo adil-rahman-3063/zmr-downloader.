@@ -86,14 +86,29 @@ app.get("/download", async (req, res) => {
     try {
       console.log("Executing yt-dlp with URL:", url);
       
+      // Different format handling for YouTube Music vs regular YouTube
+      const isYouTubeMusic = url.includes('music.youtube.com');
+      console.log("Is YouTube Music:", isYouTubeMusic);
+      
+      const formatArg = isYouTubeMusic 
+        ? 'best[ext=m4a]/best[ext=webm]/best[ext=mp4]/best'
+        : 'best[ext=m4a]/best[ext=webm]/bestaudio/best';
+      
       const stdout = await runYtdlp([
         url,
-        '--format', 'bestaudio',
+        '--format', formatArg,
         '--dump-json',
         '--no-warnings',
         '--no-check-certificate',
         '--no-cache-dir',
-        '--socket-timeout', '30'
+        '--socket-timeout', '30',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--referer', 'https://www.youtube.com/',
+        '--extractor-args', isYouTubeMusic 
+          ? 'youtube:skip=hls/dash,lang=en' 
+          : 'youtube:skip=hls/dash',
+        '--http-chunk-size', '10485760',
+        '--no-color'
       ]);
       
       console.log("✓ yt-dlp stdout received, length:", stdout.length);
@@ -119,13 +134,26 @@ app.get("/download", async (req, res) => {
         return res.status(500).send("No formats available for this video");
       }
       
-      const audioFormat = formats.find((f: any) => f.format_id === '251') || // webm audio
+      // For YouTube Music or general audio, look for audio-only formats first
+      const audioOnlyFormat = formats.find((f: any) => 
+        f.acodec !== 'none' && f.acodec !== undefined && 
+        (f.vcodec === 'none' || f.vcodec === undefined)
+      );
+      
+      // Fallback to any format with audio
+      const audioFormat = audioOnlyFormat || 
+                         formats.find((f: any) => f.format_id === '251') || // webm audio
                          formats.find((f: any) => f.format_id === '140') || // m4a audio
-                         formats.find((f: any) => f.acodec !== 'none' && f.vcodec === 'none');
+                         formats.find((f: any) => f.acodec !== 'none' && !f.vcodec?.includes('vp'));
 
       if (!audioFormat) {
         console.error("✗ NO AUDIO FORMAT ERROR");
-        console.error("Sample formats:", formats.map((f: any) => ({ id: f.format_id, codec: f.acodec, vcodec: f.vcodec })).slice(0, 5));
+        console.error("Available formats sample:", formats.slice(0, 10).map((f: any) => ({ 
+          id: f.format_id, 
+          acodec: f.acodec, 
+          vcodec: f.vcodec,
+          ext: f.ext 
+        })));
         return res.status(500).send("No audio stream available");
       }
 
